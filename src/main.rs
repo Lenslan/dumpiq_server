@@ -40,7 +40,10 @@ enum DumpCommand {
     },
     ShellCmd(String),
     ATEInit,
-    ATECmd(String)
+    ATECmd{
+        cmd: String,
+        args: Vec<String>,
+    },
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -104,29 +107,15 @@ fn handle_client(mut stream: TcpStream) -> anyhow::Result<()> {
                 log::info!("Shell Cmd {}", s);
             }
             DumpCommand::ATEInit => {
-                ate_init()?;
+                let res = ate_init()?;
+                send_response(&mut stream, !res, 0);
                 log::info!("ATE_init Over!")
             }
-            // DumpCommand::OpenRx { band_5g } => {
-            //     todo!();
-            //     let cmd = if band_5g {
-            //         ["wlan0", "fastconfig", "-f", "5745", "-c", "5745", "-w", "1", "-r"]
-            //     } else {
-            //         [ "wlan1", "fastconfig", "-f", "2422", "-c", "2422", "-w", "0", "-r"]
-            //     };
-            //     let _ = Command::new("ate_cmd")
-            //         .args(cmd)
-            //         .status()?;
-            // }
-            DumpCommand::ATECmd(s) => {
-                let cmd = s
-                    .trim()
-                    .split(" ")
-                    .collect::<Vec<_>>();
-                let _ = Command::new("ate_cmd")
-                    .args(cmd)
+            DumpCommand::ATECmd{cmd, args} => {
+                let _ = Command::new(&cmd)
+                    .args(&args)
                     .status()?;
-                log::info!("ate_cmd {} over", s);
+                log::info!("{} {} over", cmd, args.join(" "));
             }
         }
     }
@@ -142,22 +131,22 @@ fn send_response(stream: &mut TcpStream, is_error: bool, file_size: u64) {
     stream.write_all(b"\n").unwrap();
 }
 
-fn ate_init() -> anyhow::Result<()> {
-    let _ = Command::new("iw")
+fn ate_init() -> anyhow::Result<bool> {
+    let cmd1 = Command::new("iw")
         .args(["phy", "phy1", "interface", "add", "wlan0", "type", "managed"])
         .status()?;
-    let _ = Command::new("iw")
+    let cmd2 = Command::new("iw")
         .args(["phy", "phy0", "interface", "add", "wlan1", "type", "managed"])
         .status()?;
-    let _ = Command::new("ifconfig")
+    let cmd3 = Command::new("ifconfig")
         .arg("wlan0")
         .arg("up")
         .status()?;
-    let _ = Command::new("ifconfig")
+    let cmd4 = Command::new("ifconfig")
         .arg("wlan1")
         .arg("up")
         .status()?;
-    Ok(())
+    Ok(cmd1.success())
 }
 
 fn shell_cmd(cmd: &str) -> anyhow::Result<()> {
@@ -170,7 +159,7 @@ fn shell_cmd(cmd: &str) -> anyhow::Result<()> {
 
 fn dump_iq(is_5g: bool, file_name: &str) -> anyhow::Result<bool>{
     if is_5g {
-        shell_cmd("echo 0 1 0 15 0 e000 0 2 0  1 0 0 0 > /sys/kernel/debug/ieee80211/phy1/siwifi/iq_engine")?;
+        // shell_cmd("echo 0 1 0 15 0 e000 0 2 0  1 0 0 0 > /sys/kernel/debug/ieee80211/phy2/siwifi/iq_engine")?;
 
         let memdump = Command::new("memdump")
             .arg("0x20000000")
@@ -194,7 +183,7 @@ fn dump_iq(is_5g: bool, file_name: &str) -> anyhow::Result<bool>{
         // Ok(output2.success() & output1.success())
         Ok(true)
     } else {
-        shell_cmd("echo 0 1 0 15 0 1c000 0 2 0  1 0 0 0 > /sys/kernel/debug/ieee80211/phy0/siwifi/iq_engine")?;
+        // shell_cmd("echo 0 1 0 15 0 1c000 0 2 0  1 0 0 0 > /sys/kernel/debug/ieee80211/phy0/siwifi/iq_engine")?;
 
         let memdump = Command::new("memdump")
             .arg("0x30000000")
